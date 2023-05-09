@@ -122,6 +122,11 @@ type mp4track struct {
     defaultDuration    uint32
     defaultSampleFlags uint32
     baseDataOffset     uint64
+
+	defaultIsProtected     uint8
+	defaultPerSampleIVSize uint8
+	defaultKID             [16]byte
+	subSamples             []sencEntry
 }
 
 func newmp4track(cid MP4_CODEC_TYPE, writer io.WriteSeeker) *mp4track {

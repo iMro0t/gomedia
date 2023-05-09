@@ -2,7 +2,8 @@ package mp4
 
 import (
     "encoding/binary"
-    "io"
+    "fmt"
+"io"
 )
 
 type MP4_FLAG uint32
@@ -274,7 +275,8 @@ func (muxer *Movmuxer) reWriteMdatSize() (err error) {
 }
 
 func (muxer *Movmuxer) writeMoov(w io.Writer) (err error) {
-    var mvhd []byte
+    fmt.Printf("writing moov atom\n")
+	var mvhd []byte
     var mvex []byte
     if muxer.movFlag.isDash() || muxer.movFlag.isFragment() {
         mvhd = makeMvhdBox(muxer.nextTrackId, 0)

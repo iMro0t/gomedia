@@ -1,6 +1,9 @@
 package codec
 
-import "errors"
+import (
+
+"errors"
+)
 
 // Table 31 – Profiles
 // index      profile

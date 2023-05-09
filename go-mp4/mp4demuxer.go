@@ -3,7 +3,8 @@ package mp4
 import (
     "encoding/binary"
     "errors"
-    "io"
+    "fmt"
+"io"
 
     "github.com/yapingcat/gomedia/go-codec"
 )
@@ -45,6 +46,12 @@ type Mp4Info struct {
     Timescale        uint32
     CreateTime       uint64
     ModifyTime       uint64
+}
+
+type SubSample struct{
+	IV             [16]byte
+	BytesClear     int
+	BytesProtected int
 }
 
 type MovDemuxer struct {
@@ -152,6 +159,14 @@ func (demuxer *MovDemuxer) ReadHead() ([]TrackInfo, error) {
             err = decodeCo64Box(demuxer)
         case mov_tag([4]byte{'s', 't', 's', 's'}):
             err = decodeStssBox(demuxer)
+		case mov_tag([4]byte{'e', 'n', 'c', 'v'}):
+			err = decodeVisualSampleEntry(demuxer)
+		case mov_tag([4]byte{'s', 'i', 'n', 'f'}):
+		case mov_tag([4]byte{'f', 'r', 'm', 'a'}):
+			err = decodeFrmaBox(demuxer, uint32(basebox.Size))
+		case mov_tag([4]byte{'s', 'c', 'h', 'i'}):
+		case mov_tag([4]byte{'t', 'e', 'n', 'c'}):
+			err = decodeTencBox(demuxer, uint32(basebox.Size))
         case mov_tag([4]byte{'a', 'v', 'c', '1'}):
             demuxer.tracks[len(demuxer.tracks)-1].cid = MP4_CODEC_H264
             demuxer.tracks[len(demuxer.tracks)-1].extra = new(h264ExtraData)
@@ -160,6 +175,8 @@ func (demuxer *MovDemuxer) ReadHead() ([]TrackInfo, error) {
             demuxer.tracks[len(demuxer.tracks)-1].cid = MP4_CODEC_H265
             demuxer.tracks[len(demuxer.tracks)-1].extra = newh265ExtraData()
             err = decodeVisualSampleEntry(demuxer)
+		case mov_tag([4]byte{'e', 'n', 'c', 'a'}):
+			err = decodeAudioSampleEntry(demuxer)
         case mov_tag([4]byte{'m', 'p', '4', 'a'}):
             demuxer.tracks[len(demuxer.tracks)-1].cid = MP4_CODEC_AAC
             demuxer.tracks[len(demuxer.tracks)-1].extra = new(aacExtraData)
@@ -196,6 +213,8 @@ func (demuxer *MovDemuxer) ReadHead() ([]TrackInfo, error) {
             err = decodeTfdtBox(demuxer, uint32(basebox.Size))
         case mov_tag([4]byte{'t', 'r', 'u', 'n'}):
             err = decodeTrunBox(demuxer, uint32(basebox.Size))
+		case mov_tag([4]byte{'s', 'e', 'n', 'c'}):
+			err = decodeSencBox(demuxer, uint32(basebox.Size))
         case mov_tag([4]byte{'w', 'a', 'v', 'e'}):
             err = decodeWaveBox(demuxer)
         default:
@@ -335,6 +354,59 @@ func (demuxer *MovDemuxer) GetSyncTable(trackId uint32) ([]SyncSample, error) {
         }
     }
     return syncTable, nil
+}
+
+func (demuxer *MovDemuxer) GetSubSamples(trackId uint32) ([]SubSample, error) {
+ 	var track *mp4track = nil
+	for i := 0; i < len(demuxer.tracks); i++ {
+		if demuxer.tracks[i].trackId != trackId {
+			continue
+		}
+		track = demuxer.tracks[i]
+	}
+	if track == nil {
+		return nil, errors.New("not found track")
+	}
+	result := make([]SubSample, len(track.subSamples))
+	for i, senc := range track.subSamples {
+		copy(result[i].IV[:], senc.iv)
+		if len(senc.subSamples) > 0 {
+			result[i].BytesClear = int(senc.subSamples[0].bytesOfClearData)
+			result[i].BytesProtected = int(senc.subSamples[0].bytesOfProtectedData)
+		}
+	}
+	return result, nil
+}
+
+func (demuxer *MovDemuxer) GetSubSample(trackId uint32, pts uint64) (SubSample, error) {
+    var track *mp4track = nil
+    for i := 0; i < len(demuxer.tracks); i++ {
+        if demuxer.tracks[i].trackId != trackId {
+            continue
+        }
+        track = demuxer.tracks[i]
+    }
+    if track == nil {
+        return SubSample{}, errors.New("not found track")
+    }
+
+	requiredPts := (pts * uint64(track.timescale)) / 1000
+	sampleListLen := len(track.samplelist)
+	fmt.Printf("finding sample for pts %d, sampleListLen: %d, track.subSamples: %d\n", requiredPts, sampleListLen, len(track.subSamples))
+	for i, senc := range track.subSamples {
+		fmt.Printf("track.samplelist[i].pts %d, requiredPts %d\n", track.samplelist[i].pts, requiredPts)
+		if sampleListLen > i && track.samplelist[i].pts == requiredPts {
+			fmt.Printf("found sample for pts %d\n", requiredPts)
+			s := SubSample{IV: [16]byte{}}
+			copy(s.IV[:], senc.iv)
+			if len(senc.subSamples) > 0 {
+				s.BytesClear = int(senc.subSamples[0].bytesOfClearData)
+				s.BytesProtected = int(senc.subSamples[0].bytesOfProtectedData)
+			}
+			return s, nil
+		}
+	}
+    return SubSample{}, nil
 }
 
 func (demuxer *MovDemuxer) SeekTime(dts uint64) error {
