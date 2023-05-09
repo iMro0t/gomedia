@@ -3,7 +3,6 @@ package flv
 import (
     "encoding/binary"
     "errors"
-    "fmt"
 
     "github.com/yapingcat/gomedia/go-codec"
 )
@@ -70,6 +69,12 @@ func (demuxer *AVCTagDemuxer) Decode(data []byte) error {
                 hassps = true
             } else if naluType == codec.H264_NAL_PPS {
                 haspps = true
+            } else if naluType < codec.H264_NAL_I_SLICE {
+                sh := codec.SliceHeader{}
+                sh.Decode(codec.NewBitStream(tmpdata[5:]))
+                if sh.Slice_type == 2 || sh.Slice_type == 7 {
+                    idr = true
+                }
             }
             tmpdata = tmpdata[4+naluSize:]
         }
@@ -122,7 +127,6 @@ func (demuxer *HevcTagDemuxer) Decode(data []byte) error {
     data = data[5:]
     if vtag.AVCPacketType == AVC_SEQUENCE_HEADER {
         hvcc := codec.NewHEVCRecordConfiguration()
-        fmt.Printf("sequence %d\n", len(data))
         hvcc.Decode(data)
         demuxer.SpsPpsVps = hvcc.ToNalus()
     } else {
